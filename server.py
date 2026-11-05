@@ -1,13 +1,17 @@
 import os
 import secrets
-from typing import Optional
 
 from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.routing import Route
 from yandex_music import Client
+
+
+# ==========================================
+# НАСТРОЙКИ
+# ==========================================
 
 YM_TOKEN = os.getenv("YM_TOKEN")
 MCP_ACCESS_TOKEN = os.getenv("MCP_ACCESS_TOKEN")
@@ -16,6 +20,10 @@ mcp = FastMCP("Sounds — Yandex Music")
 
 _client = None
 
+
+# ==========================================
+# ПОДКЛЮЧЕНИЕ К ЯНДЕКС МУЗЫКЕ
+# ==========================================
 
 def get_client():
     global _client
@@ -29,9 +37,14 @@ def get_client():
     return _client
 
 
+# ==========================================
+# ПОИСК МУЗЫКИ
+# ==========================================
+
 @mcp.tool()
 def search_tracks(query: str, limit: int = 10) -> list:
     """Search for tracks in Yandex Music."""
+
     client = get_client()
     result = client.search(query, type_="track")
 
@@ -41,7 +54,9 @@ def search_tracks(query: str, limit: int = 10) -> list:
         {
             "id": track.id,
             "title": track.title,
-            "artists": [artist.name for artist in track.artists],
+            "artists": [
+                artist.name for artist in (track.artists or [])
+            ],
             "albums": [
                 album.title for album in (track.albums or [])
             ],
@@ -50,9 +65,14 @@ def search_tracks(query: str, limit: int = 10) -> list:
     ]
 
 
+# ==========================================
+# ПОНРАВИВШИЕСЯ ТРЕКИ
+# ==========================================
+
 @mcp.tool()
 def get_liked_tracks(limit: int = 30) -> list:
     """Get tracks liked by the connected Yandex Music account."""
+
     client = get_client()
     result = client.users_likes_tracks()
 
@@ -63,7 +83,7 @@ def get_liked_tracks(limit: int = 30) -> list:
             "id": item.track.id,
             "title": item.track.title,
             "artists": [
-                artist.name for artist in item.track.artists
+                artist.name for artist in (item.track.artists or [])
             ],
         }
         for item in tracks[:max(1, min(limit, 100))]
@@ -71,9 +91,14 @@ def get_liked_tracks(limit: int = 30) -> list:
     ]
 
 
+# ==========================================
+# МОИ ПЛЕЙЛИСТЫ
+# ==========================================
+
 @mcp.tool()
 def list_my_playlists() -> list:
     """List playlists belonging to the connected account."""
+
     client = get_client()
     playlists = client.users_playlists_list()
 
@@ -87,10 +112,16 @@ def list_my_playlists() -> list:
     ]
 
 
+# ==========================================
+# СОЗДАНИЕ ПЛЕЙЛИСТА
+# ==========================================
+
 @mcp.tool()
 def create_playlist(title: str) -> dict:
     """Create a private playlist."""
+
     client = get_client()
+
     playlist = client.users_playlists_create(
         title=title,
         visibility="private"
@@ -103,13 +134,18 @@ def create_playlist(title: str) -> dict:
     }
 
 
+# ==========================================
+# ДОБАВЛЕНИЕ ТРЕКА В ПЛЕЙЛИСТ
+# ==========================================
+
 @mcp.tool()
 def add_track_to_playlist(
     kind: int,
     track_id: int,
     album_id: int,
 ) -> dict:
-    """Add a track to a playlist using playlist kind and track/album IDs."""
+    """Add a track to a playlist."""
+
     client = get_client()
 
     client.users_playlists_insert_track(
@@ -118,15 +154,28 @@ def add_track_to_playlist(
         album_id=album_id,
     )
 
-    return {"success": True, "track_id": track_id}
+    return {
+        "success": True,
+        "track_id": track_id,
+    }
 
 
-# HTTP application
+# ==========================================
+# HTTP APPLICATION
+# ==========================================
+
 app = mcp.http_app(path="/mcp")
 
 
+# ==========================================
+# ЗАЩИТА ДОСТУПА
+# ==========================================
+
 class AuthMiddleware(BaseHTTPMiddleware):
+
     async def dispatch(self, request: Request, call_next):
+
+        # Проверка доступности сервера без авторизации
         if request.url.path == "/health":
             return await call_next(request)
 
@@ -144,9 +193,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+# ==========================================
+# HEALTH CHECK ДЛЯ RENDER
+# ==========================================
+
+async def health(request: Request):
+    return JSONResponse({
+        "status": "ok",
+        "service": "Sounds"
+    })
+
+
 app.add_middleware(AuthMiddleware)
 
-
-@app.get("/health")
-async def health(request: Request):
-    return JSONResponse({"status": "ok", "service": "Sounds"})
+app.routes.append(
+    Route("/health", health, methods=["GET"])
+)
