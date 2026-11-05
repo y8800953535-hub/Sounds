@@ -1,0 +1,15 @@
+
+services:
+  - type: web
+    name: sounds-yandex-music
+    runtime: python
+    plan: free
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: YM_TOKEN
+        sync: false
+      - key: MCP_ACCESS_TOKEN
+        sync: false
